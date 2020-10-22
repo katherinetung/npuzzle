@@ -3,7 +3,10 @@ import numpy as np
 import copy
 import warnings
 import math
+import heapq
+import time
 
+#check if a string can be cast to an int
 def string_is_int(s):
     try:
         s=int(s)
@@ -61,10 +64,10 @@ def ComputeNeighbors(state):
     down = not (N**2-N <= zero_loc and zero_loc < N**2)
 
     to_return=[]
-    copy_l=copy.deepcopy(state)
-    copy_r=copy.deepcopy(state)
-    copy_u=copy.deepcopy(state)
-    copy_d=copy.deepcopy(state)
+    copy_l=copy.copy(state)
+    copy_r=copy.copy(state)
+    copy_u=copy.copy(state)
+    copy_d=copy.copy(state)
     if left:
         copy_l[zero_loc], copy_l[zero_loc-1] = copy_l[zero_loc-1], copy_l[zero_loc]
         to_return.append((copy_l[zero_loc], copy_l))
@@ -85,22 +88,6 @@ def IsGoal(state):
     goal.append(0)
     return state == goal
 
-"""
-#Converts a list of lists into a tuple of tuples.
-def nested_tuple(nested_list):
-    outer_tuple=[]
-    for i in nested_list:
-        i=tuple(i)
-        outer_tuple.append(i)
-    return tuple(outer_tuple)
-
-#Converts a tuple of tuples into a list of lists.
-def nested_list(nested_tuple):
-    outer_list=[]
-    for i in nested_tuple:
-        i=list(i)
-        outer_list.append(i)
-    return outer_list"""
 
 #Checks if config is actually solvable. Generally this method is more efficient
 #than BFS or DFS. Add the Manhattan distance of the empty square to bottom right
@@ -119,16 +106,19 @@ def solvable(state):
     for i in range(N**2):
         for j in range(i+1,N**2):
             inversion_ctr += int(state[i] > state[j])
-    """print("Inversion counter")
-    print(inversion_ctr)
-    print("Manhattan")
-    print(manhattan)"""
     invariant=(inversion_ctr + manhattan) % 2
     state[zero_loc]=0
-    """print("Invariant")
-    print(invariant)"""
     return invariant % 2 == 0
 
+#Takes a state path (a list of game state tuples) and converts to a sequence of
+#tiles to move as strings.
+def TileSwap(state_path):
+    tiles_to_move=[]
+    for i in range(0, len(state_path)-1):
+        zero_loc=state_path[i].index(0)
+        swapped_with=state_path[i+1][zero_loc]
+        tiles_to_move.append(str(swapped_with))
+    return tiles_to_move
 
 
 def BFS(state):
@@ -148,7 +138,7 @@ def BFS(state):
             while par != None:
                 path.append(par)
                 par=parents[par]
-            return path[::-1]
+            return TileSwap(path[::-1])
         for value_state_tuple in ComputeNeighbors(list(current_state)):
             neighbor=tuple(value_state_tuple[1])
             if neighbor not in discovered and neighbor not in frontier:
@@ -174,7 +164,7 @@ def DFS(state):
             while par != None:
                 path.append(par)
                 par=parents[par]
-            return path[::-1]
+            return TileSwap(path[::-1])
         for value_state_tuple in ComputeNeighbors(list(current_state)):
             neighbor=tuple(value_state_tuple[1])
             if neighbor not in discovered and neighbor not in frontier:
@@ -211,11 +201,7 @@ def BidirectionalSearch(state):
 
     while True:
         if forward_search:
-            """print("frontier")
-            print(frontier)"""
             current_state=frontier.pop(0)
-            """print('current state')
-            print(current_state)"""
             discovered.add(current_state)
             for value_state_tuple in ComputeNeighbors(list(current_state)):
                 neighbor=tuple(value_state_tuple[1])
@@ -226,24 +212,10 @@ def BidirectionalSearch(state):
                         join_point = neighbor
                         time_to_exit=True
         else:
-            """print("frontier reverse")
-            print(frontier_rev)"""
             current_state_rev=frontier_rev.pop(0)
-            """print("current state rev")
-            print(current_state_rev)"""
             discovered_rev.add(current_state_rev)
-            """print("neighbors")
-            print(ComputeNeighbors(list(current_state_rev)))"""
             for value_state_tuple_rev in ComputeNeighbors(list(current_state_rev)):
                 neighbor_rev=tuple(value_state_tuple_rev[1])
-                """print("considered neighbor")
-                print(neighbor_rev)
-                print("discovered")
-                print(discovered_rev)
-                print("frontier rev")
-                print(frontier_rev)
-                print((neighbor_rev not in discovered_rev))
-                print((neighbor_rev not in frontier_rev))"""
                 if (neighbor_rev not in discovered_rev) and (neighbor_rev not in frontier_rev):
                     frontier_rev.append(neighbor_rev)
                     parents_rev[neighbor_rev]=current_state_rev
@@ -253,7 +225,6 @@ def BidirectionalSearch(state):
         if time_to_exit:
             break
         forward_search= not forward_search
-    #print(join_point)
     front=[join_point]
     par=parents[join_point]
     while par != None:
@@ -264,7 +235,53 @@ def BidirectionalSearch(state):
     while par_rev != None:
         front.append(par_rev)
         par_rev=parents_rev[par_rev]
-    return front
+    return TileSwap(front)
+
+#for each tile, compute manhattan distance from tile position to target position
+#add up manhattan distances. heuristic for A*
+def manhattan(state):
+    #Goes by ordering of numbers in state, not necessarily in order 1, 2, ..., n^2
+    N=round(math.sqrt(len(state)))
+    total=0
+    for i in range(N**2):
+        curr_row= i // N
+        curr_col=i%N
+        if state[i] == 0:
+            target_row=N-1
+            target_col=N-1
+        else:
+            target_row=(state[i]-1) // N
+            target_col=(state[i]-1) %N
+        cell_manhattan=abs(curr_row-target_row) + abs(curr_col-target_col)
+        total+=cell_manhattan
+    return total
+
+def AStar(state):
+    if not solvable(state):
+        print("No path exists")
+        return None
+    state=tuple(state)
+    frontier = [(manhattan(state), state)]
+    heapq.heapify(frontier)
+    discovered = set() #former frontier elements
+    parents = {state: None}
+    while True:
+        priority, current_state = heapq.heappop(frontier)
+        discovered.add(current_state)
+        if IsGoal(list(current_state)):
+            path=[current_state]
+            par=parents[current_state]
+            while par != None:
+                path.append(par)
+                par=parents[par]
+            return TileSwap(path[::-1])
+        for value_state_tuple in ComputeNeighbors(list(current_state)):
+            neighbor=tuple(value_state_tuple[1])
+            if neighbor not in discovered and neighbor not in frontier:
+                heapq.heappush(frontier,(manhattan(neighbor),neighbor))
+                parents[neighbor] = current_state
+    print("Not solvable")
+    return None
 
 # Called from command line like "word_games.py scrabble.txt"
 if __name__ == '__main__':
@@ -273,14 +290,7 @@ if __name__ == '__main__':
 
   input = LoadFromFile(file_path)
 
-  #print(input)
-  #DebugPrint(input)
-  #print(ComputeNeighbors(input))
-  #print(solvable(input))
-  #print(BFS(input))
-  print(BidirectionalSearch(input))
-  #print(solvable(input))
-  #print(input)
-  #print(IsGoal(input))
-  #print(DFS(input))
-  #print(ComputeNeighbors(input))
+  if input==None:
+      exit()
+
+  print(AStar(input))
