@@ -288,9 +288,4 @@ if __name__ == '__main__':
   warnings.filterwarnings("ignore")
   file_path = "/Users/katherinetung/npuzzle/example.txt"
 
-  input = LoadFromFile(file_path)
-
-  if input==None:
-      exit()
-
-  print(AStar(input))
+ 
